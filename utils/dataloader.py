@@ -99,3 +99,67 @@ class test_dataset:
         with open(path, 'rb') as f:
             img = Image.open(f)
             return img.convert('L')
+
+# New custom dataset class for your data structure
+class CustomDataset(data.Dataset):
+    def __init__(self, image_root, gt_root, trainsize, is_training=True):
+        self.image_root = image_root
+        self.gt_root = gt_root
+        self.trainsize = trainsize
+        self.is_training = is_training
+        
+        # Get all image files
+        self.samples = [name for name in os.listdir(image_root) if name.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        self.samples.sort()
+        
+        if is_training:
+            self.transform = A.Compose([
+                A.Resize(trainsize, trainsize, interpolation=cv2.INTER_NEAREST),
+                A.HorizontalFlip(p=0.3),
+                A.VerticalFlip(p=0.3),
+                A.RandomBrightnessContrast(p=0.2),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+        else:
+            self.transform = A.Compose([
+                A.Resize(trainsize, trainsize, interpolation=cv2.INTER_NEAREST),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+
+    def __getitem__(self, idx):
+        name = self.samples[idx]
+        
+        # Load image
+        image_path = os.path.join(self.image_root, name)
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Load mask
+        mask_name = name.replace('.jpg', '.png').replace('.jpeg', '.png')
+        mask_path = os.path.join(self.gt_root, mask_name)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        mask = mask.astype(np.float32) / 255.0
+        
+        # Apply transforms
+        transformed = self.transform(image=image, mask=mask)
+        
+        return transformed['image'], transformed['mask'].unsqueeze(0)
+
+    def __len__(self):
+        return len(self.samples)
+
+def get_custom_loader(image_root, gt_root, batchsize, trainsize, shuffle=True, num_workers=4, pin_memory=True, is_training=True):
+    """
+    Create data loader for custom dataset structure
+    """
+    dataset = CustomDataset(image_root, gt_root, trainsize, is_training)
+    data_loader = data.DataLoader(
+        dataset=dataset,
+        batch_size=batchsize,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory
+    )
+    return data_loader
